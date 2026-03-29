@@ -2,6 +2,8 @@
 - name: Healthcheck screenshot audit agent
   hosts: sharex_pilot
   gather_facts: false
+  vars_files:
+    - ../group_vars/sharex_pilot.yml
 
   tasks:
     - name: Query service info

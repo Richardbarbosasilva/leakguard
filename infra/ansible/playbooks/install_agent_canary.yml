@@ -2,6 +2,8 @@
 - name: Install or update screenshot audit agent on the canary host
   hosts: HOST-TEST2
   gather_facts: false
+  vars_files:
+    - ../group_vars/sharex_pilot.yml
 
   tasks:
     - name: Ensure agent directories exist

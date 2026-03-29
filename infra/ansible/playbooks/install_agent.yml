@@ -3,6 +3,8 @@
   hosts: sharex_pilot
   gather_facts: false
   serial: 1
+  vars_files:
+    - ../group_vars/sharex_pilot.yml
 
   tasks:
     - name: Ensure agent directories exist
