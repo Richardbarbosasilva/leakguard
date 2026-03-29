@@ -29,8 +29,9 @@ if ($existing) {
     & $NssmPath remove $ServiceName confirm | Out-Null
 }
 
-& $NssmPath install $ServiceName $BinaryPath "--config `"$ConfigPath`"" | Out-Null
+& $NssmPath install $ServiceName $BinaryPath | Out-Null
 & $NssmPath set $ServiceName AppDirectory (Split-Path -Path $BinaryPath -Parent) | Out-Null
+& $NssmPath set $ServiceName AppParameters "--config `"$ConfigPath`"" | Out-Null
 & $NssmPath set $ServiceName Start SERVICE_AUTO_START | Out-Null
 & $NssmPath set $ServiceName AppStdout "$ProgramDataRoot\logs\service-stdout.log" | Out-Null
 & $NssmPath set $ServiceName AppStderr "$ProgramDataRoot\logs\service-stderr.log" | Out-Null

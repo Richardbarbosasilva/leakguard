@@ -6,6 +6,8 @@ Empacotar o agent Python para Windows e instala-lo como servico para piloto.
 
 Este piloto usa credencial direta do MinIO no endpoint. Na fase seguinte, o ideal e trocar isso por URL pre-assinada emitida pela API central.
 
+No lab, o endpoint correto do storage e o S3 publicado em `http://s3.homelab.local`, nao o console `minio.homelab.local`.
+
 ## Estrutura recomendada no endpoint
 
 - `C:\Program Files\ScreenshotAudit\ScreenshotAuditAgent.exe`
@@ -128,3 +130,15 @@ MSI vale quando:
 - o rollout ja estiver repetivel
 
 Antes disso, `PyInstaller + NSSM + script de instalacao` e mais rapido e menos custoso.
+
+## 9. Atalho para o canario com WinRM
+
+Se o Python ja estiver presente no host piloto, o playbook `install_agent_canary` pode:
+
+1. copiar `mock_watermark.py` e `requirements-agent.txt`
+2. criar um `venv` no proprio Windows
+3. instalar `pyinstaller`
+4. gerar `ScreenshotAuditAgent.exe`
+5. registrar o servico com NSSM
+
+Esse caminho acelera o primeiro piloto e evita travar a validacao do fluxo enquanto o pacote MSI definitivo ainda nao existe.

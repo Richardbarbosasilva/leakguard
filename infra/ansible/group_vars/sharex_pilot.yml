@@ -3,6 +3,8 @@ sharex_installer_remote_path: 'C:\Windows\Temp\ShareX-19.0.2-setup.exe'
 sharex_version: "19.0.2"
 sharex_personal_path: 'C:\ProgramData\ScreenshotAudit\spool'
 
+agent_source_local_path: "/var/www/audit_screenshot/mock_watermark.py"
+agent_requirements_local_path: "/var/www/audit_screenshot/requirements-agent.txt"
 agent_build_local_path: "/var/www/audit_screenshot/dist/ScreenshotAuditAgent.exe"
 agent_config_local_path: "/var/www/audit_screenshot/agent_config.json"
 agent_logo_local_path: "/var/www/audit_screenshot/logo.png"
@@ -12,8 +14,17 @@ install_agent_service_local_path: "/var/www/audit_screenshot/install_agent_servi
 agent_install_root: 'C:\Program Files\ScreenshotAudit'
 agent_programdata_root: 'C:\ProgramData\ScreenshotAudit'
 agent_binary_remote_path: 'C:\Program Files\ScreenshotAudit\ScreenshotAuditAgent.exe'
-agent_config_remote_path: 'C:\Program Files\ScreenshotAudit\agent_config.json'
+agent_config_remote_path: 'C:\ProgramData\ScreenshotAudit\agent_config.json'
 agent_logo_remote_path: 'C:\ProgramData\ScreenshotAudit\assets\logo.png'
 agent_nssm_remote_path: 'C:\Program Files\ScreenshotAudit\nssm.exe'
 agent_install_script_remote_path: 'C:\Program Files\ScreenshotAudit\install_agent_service.ps1'
 agent_service_name: "ScreenshotAuditAgent"
+agent_build_workspace_remote: 'C:\Build\ScreenshotAudit'
+agent_build_source_remote_dir: 'C:\Build\ScreenshotAudit\src'
+agent_build_script_remote_path: 'C:\Build\ScreenshotAudit\src\mock_watermark.py'
+agent_build_requirements_remote_path: 'C:\Build\ScreenshotAudit\src\requirements-agent.txt'
+agent_built_binary_remote_path: 'C:\Build\ScreenshotAudit\dist\ScreenshotAuditAgent.exe'
+agent_storage_host_alias: "s3.homelab.local"
+agent_storage_host_ip: "192.168.1.12"
+agent_console_host_alias: "minio.homelab.local"
+agent_console_host_ip: "192.168.1.12"

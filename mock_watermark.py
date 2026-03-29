@@ -10,6 +10,7 @@ import os
 import re
 import socket
 import sqlite3
+import subprocess
 import sys
 import time
 import uuid
@@ -39,6 +40,7 @@ WINDOWS_FONT_CANDIDATES = [
 LINUX_FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
+SYSTEM_USERNAMES = {"SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE"}
 
 
 def default_data_root() -> str:
@@ -82,7 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "external_ip_map": {},
     },
     "minio": {
-        "endpoint_url": "https://minio.homelab.local",
+        "endpoint_url": "http://s3.homelab.local",
         "access_key": "",
         "secret_key": "",
         "region_name": "us-east-1",
@@ -197,6 +199,75 @@ def get_internal_ip() -> str:
             return sock.getsockname()[0]
     except OSError:
         return "N/A"
+
+
+def normalize_username(value: str) -> str:
+    cleaned = value.strip()
+    if "\\" in cleaned:
+        cleaned = cleaned.rsplit("\\", 1)[-1]
+    elif "@" in cleaned:
+        cleaned = cleaned.split("@", 1)[0]
+    return cleaned.strip()
+
+
+def get_active_windows_user() -> str:
+    commands = [
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$user = (Get-CimInstance Win32_ComputerSystem).UserName; if ($user) { $user }",
+        ],
+        ["query", "user"],
+    ]
+
+    for command in commands:
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+
+        if completed.returncode != 0 or not completed.stdout:
+            continue
+
+        if command[0].lower() == "query":
+            for raw_line in completed.stdout.splitlines():
+                line = raw_line.strip().lstrip(">")
+                if not line or line.upper().startswith("USERNAME"):
+                    continue
+                candidate = normalize_username(line.split()[0])
+                if candidate:
+                    return candidate
+            continue
+
+        candidate = normalize_username(completed.stdout.strip())
+        if candidate:
+            return candidate
+
+    return ""
+
+
+def get_effective_username() -> str:
+    env_username = normalize_username(os.environ.get("USERNAME", ""))
+    if env_username and env_username.upper() not in SYSTEM_USERNAMES:
+        return env_username
+
+    if os.name == "nt":
+        active_username = get_active_windows_user()
+        if active_username:
+            return active_username
+
+    fallback = normalize_username(getpass.getuser())
+    return fallback or "unknown"
 
 
 class ExternalIPResolver:
@@ -633,7 +704,7 @@ def enqueue_new_files(
     logger: logging.Logger,
 ) -> int:
     hostname = socket.gethostname()
-    username = os.environ.get("USERNAME") or getpass.getuser()
+    username = get_effective_username()
     local_ip = get_internal_ip()
     external_ip = external_ip_resolver.get_external_ip()
     queued_count = 0

@@ -41,7 +41,7 @@
     }
   },
   "minio": {
-    "endpoint_url": "https://minio.homelab.local",
+    "endpoint_url": "http://s3.homelab.local",
     "access_key": "CHANGE_ME",
     "secret_key": "CHANGE_ME",
     "region_name": "us-east-1",

@@ -1,5 +1,5 @@
 ---
-- name: Install or update screenshot audit agent on the canary host
+- name: Build and install screenshot audit agent on the canary host
   hosts: HOST-TEST2
   gather_facts: false
   vars_files:
@@ -18,11 +18,143 @@
         - "{{ agent_programdata_root }}\\spool"
         - "{{ agent_programdata_root }}\\tmp"
         - "{{ agent_programdata_root }}\\data"
+        - "{{ agent_build_workspace_remote }}"
+        - "{{ agent_build_source_remote_dir }}"
 
-    - name: Copy agent binary
+    - name: Pin storage hostnames in the canary hosts file
+      ansible.windows.win_powershell:
+        script: |
+          $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $existing = @()
+          if (Test-Path $hostsPath) {
+            $existing = Get-Content $hostsPath
+          }
+
+          $mappings = @(
+            @{ Host = "{{ agent_storage_host_alias }}"; IP = "{{ agent_storage_host_ip }}" },
+            @{ Host = "{{ agent_console_host_alias }}"; IP = "{{ agent_console_host_ip }}" }
+          )
+
+          $updated = @()
+          foreach ($line in $existing) {
+            $skip = $false
+            foreach ($mapping in $mappings) {
+              $escaped = [regex]::Escape($mapping.Host)
+              if ($line -match "^\s*[0-9\.:]+\s+$escaped(\s|$)") {
+                $skip = $true
+                break
+              }
+            }
+            if (-not $skip) {
+              $updated += $line
+            }
+          }
+
+          foreach ($mapping in $mappings) {
+            $updated += "$($mapping.IP)`t$($mapping.Host)"
+          }
+
+          Set-Content -Path $hostsPath -Value $updated -Encoding ASCII
+          $updated | Where-Object { $_ -match "homelab\.local" }
+      register: hosts_pin
+
+    - name: Validate MinIO S3 endpoint from the canary host
+      ansible.windows.win_powershell:
+        script: |
+          $response = Invoke-WebRequest -Uri "http://{{ agent_storage_host_alias }}/minio/health/live" -UseBasicParsing -TimeoutSec 10
+          if ($response.StatusCode -ne 200) {
+            throw "Endpoint S3 retornou status $($response.StatusCode)"
+          }
+          "S3 endpoint OK: $($response.StatusCode)"
+      register: storage_health
+
+    - name: Copy agent source code
       ansible.windows.win_copy:
-        src: "{{ agent_build_local_path }}"
-        dest: "{{ agent_binary_remote_path }}"
+        src: "{{ agent_source_local_path }}"
+        dest: "{{ agent_build_script_remote_path }}"
+
+    - name: Copy agent requirements
+      ansible.windows.win_copy:
+        src: "{{ agent_requirements_local_path }}"
+        dest: "{{ agent_build_requirements_remote_path }}"
+
+    - name: Detect Python interpreter for remote build
+      ansible.windows.win_powershell:
+        script: |
+          $python = $null
+          $commands = Get-Command python,py -ErrorAction SilentlyContinue | Where-Object { $_.Source }
+
+          foreach ($command in $commands) {
+            if ($command.Name -ieq "python.exe") {
+              $python = $command.Source
+              break
+            }
+          }
+
+          if (-not $python -and $commands) {
+            $python = $commands[0].Source
+          }
+
+          if (-not $python) {
+            throw "Python nao encontrado no host canario."
+          }
+
+          $python
+      register: python_path
+
+    - name: Build ScreenshotAuditAgent executable on the canary host
+      ansible.windows.win_powershell:
+        script: |
+          $python = "{{ python_path.output[0] }}"
+          $workspace = "{{ agent_build_workspace_remote }}"
+          $sourceDir = "{{ agent_build_source_remote_dir }}"
+          $venvPython = Join-Path $workspace ".venv\\Scripts\\python.exe"
+          $distBinary = "{{ agent_built_binary_remote_path }}"
+
+          if (-not (Test-Path $venvPython)) {
+            & $python -m venv (Join-Path $workspace ".venv")
+            if ($LASTEXITCODE -ne 0) {
+              throw "Falha ao criar o venv do agent."
+            }
+          }
+
+          & $venvPython -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao atualizar o pip do agent."
+          }
+
+          & $venvPython -m pip install -r "{{ agent_build_requirements_remote_path }}" pyinstaller
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao instalar dependencias do agent."
+          }
+
+          Push-Location $sourceDir
+          try {
+            & $venvPython -m PyInstaller --noconfirm --clean --onefile --name ScreenshotAuditAgent `
+              --distpath "{{ agent_build_workspace_remote }}\\dist" `
+              --workpath "{{ agent_build_workspace_remote }}\\build" `
+              --specpath "{{ agent_build_workspace_remote }}\\spec" `
+              "{{ agent_build_script_remote_path }}"
+            if ($LASTEXITCODE -ne 0) {
+              throw "PyInstaller retornou erro ao gerar o executavel."
+            }
+          } finally {
+            Pop-Location
+          }
+
+          if (-not (Test-Path $distBinary)) {
+            throw "Executavel nao encontrado em $distBinary"
+          }
+
+          $distBinary
+      register: agent_build
+
+    - name: Copy built agent binary into the install root
+      ansible.windows.win_powershell:
+        script: |
+          Copy-Item -Path "{{ agent_built_binary_remote_path }}" -Destination "{{ agent_binary_remote_path }}" -Force
+          Get-Item "{{ agent_binary_remote_path }}" | Select-Object FullName,Length,LastWriteTime | ConvertTo-Json -Compress
+      register: copied_binary
 
     - name: Copy agent config
       ansible.windows.win_copy:
@@ -60,5 +192,10 @@
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Service: {{ agent_service_name }}"
+          - "Hosts file pinned: {{ hosts_pin.output | default([]) }}"
+          - "Storage health: {{ storage_health.output | default([]) }}"
+          - "Python: {{ python_path.output | default([]) }}"
+          - "Build artifact: {{ agent_build.output | default([]) }}"
+          - "Binary metadata: {{ copied_binary.output | default([]) }}"
           - "Changed/Executed: {{ agent_install.changed }}"
           - "{{ agent_install.output | default([]) }}"
