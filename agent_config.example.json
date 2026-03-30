@@ -1,6 +1,6 @@
 {
-  "agent_version": "0.1.1-pilot",
-  "sharex_profile_version": "pilot-3",
+  "agent_version": "0.1.2-pilot",
+  "sharex_profile_version": "pilot-4",
   "poll_interval_seconds": 2,
   "retry_backoff_seconds": 15,
   "retry_backoff_max_seconds": 300,
@@ -46,5 +46,14 @@
     "secret_key": "CHANGE_ME",
     "region_name": "us-east-1",
     "verify_tls": false
+  },
+  "api": {
+    "enabled": true,
+    "base_url": "http://audit-sharex-api.homelab.local:8010",
+    "heartbeat_path": "/api/v1/agents/heartbeat",
+    "ingest_confirm_path": "/api/v1/ingest/confirm",
+    "timeout_seconds": 5,
+    "heartbeat_interval_seconds": 60,
+    "agent_id": ""
   }
 }

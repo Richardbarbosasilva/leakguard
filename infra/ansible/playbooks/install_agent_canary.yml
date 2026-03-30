@@ -32,7 +32,8 @@
 
           $mappings = @(
             @{ Host = "{{ agent_storage_host_alias }}"; IP = "{{ agent_storage_host_ip }}" },
-            @{ Host = "{{ agent_console_host_alias }}"; IP = "{{ agent_console_host_ip }}" }
+            @{ Host = "{{ agent_console_host_alias }}"; IP = "{{ agent_console_host_ip }}" },
+            @{ Host = "{{ agent_api_host_alias }}"; IP = "{{ agent_api_host_ip }}" }
           )
 
           $updated = @()
@@ -68,6 +69,16 @@
           "S3 endpoint OK: $($response.StatusCode)"
       register: storage_health
 
+    - name: Validate Audit ShareX API endpoint from the canary host
+      ansible.windows.win_powershell:
+        script: |
+          $response = Invoke-WebRequest -Uri "http://{{ agent_api_host_alias }}:{{ agent_api_port }}/health" -UseBasicParsing -TimeoutSec 10
+          if ($response.StatusCode -ne 200) {
+            throw "API retornou status $($response.StatusCode)"
+          }
+          "Audit API endpoint OK: $($response.StatusCode)"
+      register: api_health
+
     - name: Copy agent source code
       ansible.windows.win_copy:
         src: "{{ agent_source_local_path }}"
@@ -101,6 +112,12 @@
 
           $python
       register: python_path
+
+    - name: Stop ScreenshotAuditAgent before refreshing the binary on the canary host
+      ansible.windows.win_service:
+        name: "{{ agent_service_name }}"
+        state: stopped
+      ignore_errors: true
 
     - name: Build ScreenshotAuditAgent executable on the canary host
       ansible.windows.win_powershell:
@@ -156,6 +173,18 @@
           Get-Item "{{ agent_binary_remote_path }}" | Select-Object FullName,Length,LastWriteTime | ConvertTo-Json -Compress
       register: copied_binary
 
+    - name: Ensure local dist directory exists
+      ansible.builtin.file:
+        path: "{{ agent_build_fetch_cache_local_path | dirname }}"
+        state: directory
+      delegate_to: localhost
+
+    - name: Fetch canary-built binary back to the controller
+      ansible.builtin.fetch:
+        src: "{{ agent_built_binary_remote_path }}"
+        dest: "{{ agent_build_fetch_cache_local_path }}"
+        flat: true
+
     - name: Copy agent config
       ansible.windows.win_copy:
         src: "{{ agent_config_local_path }}"
@@ -194,6 +223,7 @@
           - "Service: {{ agent_service_name }}"
           - "Hosts file pinned: {{ hosts_pin.output | default([]) }}"
           - "Storage health: {{ storage_health.output | default([]) }}"
+          - "API health: {{ api_health.output | default([]) }}"
           - "Python: {{ python_path.output | default([]) }}"
           - "Build artifact: {{ agent_build.output | default([]) }}"
           - "Binary metadata: {{ copied_binary.output | default([]) }}"

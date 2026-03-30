@@ -24,7 +24,11 @@ agent_build_source_remote_dir: 'C:\Build\ScreenshotAudit\src'
 agent_build_script_remote_path: 'C:\Build\ScreenshotAudit\src\mock_watermark.py'
 agent_build_requirements_remote_path: 'C:\Build\ScreenshotAudit\src\requirements-agent.txt'
 agent_built_binary_remote_path: 'C:\Build\ScreenshotAudit\dist\ScreenshotAuditAgent.exe'
+agent_build_fetch_cache_local_path: '/tmp/semaphore-agent-builds/ScreenshotAuditAgent.exe'
 agent_storage_host_alias: "s3.homelab.local"
 agent_storage_host_ip: "192.168.1.12"
 agent_console_host_alias: "minio.homelab.local"
 agent_console_host_ip: "192.168.1.12"
+agent_api_host_alias: "audit-sharex-api.homelab.local"
+agent_api_host_ip: "192.168.1.12"
+agent_api_port: 8010

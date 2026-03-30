@@ -50,8 +50,8 @@ def default_data_root() -> str:
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "agent_version": "0.1.0-pilot",
-    "sharex_profile_version": "pilot-1",
+    "agent_version": "0.1.2-pilot",
+    "sharex_profile_version": "pilot-4",
     "poll_interval_seconds": 2,
     "retry_backoff_seconds": 15,
     "retry_backoff_max_seconds": 300,
@@ -89,6 +89,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "secret_key": "",
         "region_name": "us-east-1",
         "verify_tls": False,
+    },
+    "api": {
+        "enabled": False,
+        "base_url": "",
+        "heartbeat_path": "/api/v1/agents/heartbeat",
+        "ingest_confirm_path": "/api/v1/ingest/confirm",
+        "timeout_seconds": 5,
+        "heartbeat_interval_seconds": 60,
+        "agent_id": "",
     },
 }
 
@@ -507,6 +516,45 @@ class QueueStore:
         )
         return {row["status"]: row["total"] for row in cursor.fetchall()}
 
+    def get_operational_snapshot(self) -> dict[str, Any]:
+        counts = self.count_by_status()
+        last_upload_row = self.connection.execute(
+            """
+            SELECT processed_at
+              FROM queue_items
+             WHERE processed_at IS NOT NULL
+             ORDER BY processed_at DESC
+             LIMIT 1
+            """
+        ).fetchone()
+        last_event_row = self.connection.execute(
+            """
+            SELECT captured_at
+              FROM queue_items
+             ORDER BY created_at DESC
+             LIMIT 1
+            """
+        ).fetchone()
+        last_error_row = self.connection.execute(
+            """
+            SELECT last_error, updated_at
+              FROM queue_items
+             WHERE last_error IS NOT NULL AND TRIM(last_error) <> ''
+             ORDER BY updated_at DESC
+             LIMIT 1
+            """
+        ).fetchone()
+
+        return {
+            "status_counts": counts,
+            "queue_pending": counts.get("pending", 0) + counts.get("failed", 0) + counts.get("uploading", 0),
+            "queue_done": counts.get("done", 0),
+            "queue_failed": counts.get("dead", 0),
+            "last_upload_at": last_upload_row["processed_at"] if last_upload_row else None,
+            "last_event_at": last_event_row["captured_at"] if last_event_row else None,
+            "last_error": last_error_row["last_error"] if last_error_row else None,
+        }
+
     def close(self) -> None:
         self.connection.close()
 
@@ -674,6 +722,43 @@ def resolve_tenant_and_bucket(config: dict[str, Any], external_ip: str) -> tuple
     return tenant, bucket_name
 
 
+class ApiClient:
+    def __init__(self, config: dict[str, Any], logger: logging.Logger) -> None:
+        api_config = config.get("api", {})
+        self.enabled = bool(api_config.get("enabled")) and bool(str(api_config.get("base_url", "")).strip())
+        self.base_url = str(api_config.get("base_url", "")).rstrip("/")
+        self.heartbeat_path = str(api_config.get("heartbeat_path", "/api/v1/agents/heartbeat"))
+        self.ingest_confirm_path = str(api_config.get("ingest_confirm_path", "/api/v1/ingest/confirm"))
+        self.timeout_seconds = int(api_config.get("timeout_seconds", 5))
+        self.agent_id = str(api_config.get("agent_id", "")).strip()
+        self.logger = logger
+
+    def send_heartbeat(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self._post_json(self.heartbeat_path, payload)
+
+    def send_ingest_confirm(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self._post_json(self.ingest_confirm_path, payload)
+
+    def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.enabled:
+            return None
+
+        url = f"{self.base_url}{path}"
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": f"ScreenshotAuditAgent/{payload.get('agent_version', '0.1')}",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=self.timeout_seconds) as response:
+            raw = response.read().decode("utf-8", errors="ignore").strip()
+            return json.loads(raw) if raw else {}
+
+
 def create_s3_client(config: dict[str, Any]):
     minio = config["minio"]
     return boto3.client(
@@ -734,6 +819,7 @@ def process_due_items(
     queue_store: QueueStore,
     external_ip_resolver: ExternalIPResolver,
     s3_client,
+    api_client: ApiClient,
     logger: logging.Logger,
 ) -> int:
     processed_count = 0
@@ -792,6 +878,38 @@ def process_due_items(
             queue_store.mark_completed(event_id, sha256_hash)
             processed_count += 1
 
+            if api_client.enabled:
+                try:
+                    api_response = api_client.send_ingest_confirm(
+                        {
+                            "event_id": event_id,
+                            "agent_id": api_client.agent_id or item["hostname"],
+                            "hostname": item["hostname"],
+                            "username": item["username"],
+                            "local_ip": item["local_ip"],
+                            "external_ip": external_ip,
+                            "object_bucket": bucket_name,
+                            "object_key": object_key,
+                            "sha256": sha256_hash,
+                            "file_size": item["source_size"],
+                            "content_type": "image/jpeg",
+                            "captured_at": item["captured_at"],
+                            "metadata": {
+                                "tenant": tenant,
+                                "bucket_name": bucket_name,
+                                "object_key": object_key,
+                            },
+                        }
+                    )
+                    logger.info(
+                        "API confirmada: event_id=%s tenant=%s site=%s",
+                        event_id,
+                        (api_response or {}).get("tenant", "N/A"),
+                        (api_response or {}).get("site", "N/A"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Falha ao confirmar ingestao na API para %s: %s", event_id, exc)
+
             if config["delete_local_after_success"]:
                 try:
                     source_path.unlink(missing_ok=True)
@@ -818,6 +936,65 @@ def process_due_items(
             )
 
     return processed_count
+
+
+def maybe_send_heartbeat(
+    *,
+    config: dict[str, Any],
+    queue_store: QueueStore,
+    external_ip_resolver: ExternalIPResolver,
+    api_client: ApiClient,
+    logger: logging.Logger,
+    last_sent_at: float,
+    force: bool = False,
+) -> float:
+    if not api_client.enabled:
+        return last_sent_at
+
+    interval_seconds = int(config["api"].get("heartbeat_interval_seconds", 60))
+    now = time.monotonic()
+    if not force and (now - last_sent_at) < interval_seconds:
+        return last_sent_at
+
+    hostname = socket.gethostname()
+    snapshot = queue_store.get_operational_snapshot()
+    payload = {
+        "agent_id": api_client.agent_id or hostname,
+        "hostname": hostname,
+        "username": get_effective_username(),
+        "local_ip": get_internal_ip(),
+        "external_ip": external_ip_resolver.get_external_ip(),
+        "service_status": "running",
+        "agent_version": config["agent_version"],
+        "sharex_profile_version": config["sharex_profile_version"],
+        "queue_pending": snapshot["queue_pending"],
+        "queue_done": snapshot["queue_done"],
+        "queue_failed": snapshot["queue_failed"],
+        "last_error": snapshot["last_error"],
+        "last_event_at": snapshot["last_event_at"],
+        "last_upload_at": snapshot["last_upload_at"],
+        "heartbeat_at": iso_now(),
+        "metadata": {
+            "status_counts": snapshot["status_counts"],
+            "spool_dir": str(config["paths"]["spool_dir"]),
+            "db_path": str(config["paths"]["db_path"]),
+        },
+    }
+
+    try:
+        response = api_client.send_heartbeat(payload)
+        logger.info(
+            "Heartbeat enviado: agent_id=%s tenant=%s site=%s resolved_by=%s",
+            payload["agent_id"],
+            (response or {}).get("tenant", "N/A"),
+            (response or {}).get("site", "N/A"),
+            (response or {}).get("resolved_by", "N/A"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Falha ao enviar heartbeat para a API: %s", exc)
+        return last_sent_at
+
+    return now
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -856,6 +1033,7 @@ def main() -> int:
     logger.info("Spool: %s", config["paths"]["spool_dir"])
     logger.info("Tmp: %s", config["paths"]["tmp_dir"])
     logger.info("Queue DB: %s", config["paths"]["db_path"])
+    logger.info("API heartbeat habilitado: %s", bool(config.get("api", {}).get("enabled")))
 
     queue_store = QueueStore(config["paths"]["db_path"])
     recovered_items = queue_store.reset_inflight_items()
@@ -868,8 +1046,19 @@ def main() -> int:
         cache_ttl_seconds=int(config["external_ip_cache_ttl_seconds"]),
     )
     s3_client = create_s3_client(config)
+    api_client = ApiClient(config, logger)
+    last_heartbeat_sent = 0.0
 
     try:
+        last_heartbeat_sent = maybe_send_heartbeat(
+            config=config,
+            queue_store=queue_store,
+            external_ip_resolver=external_ip_resolver,
+            api_client=api_client,
+            logger=logger,
+            last_sent_at=last_heartbeat_sent,
+            force=True,
+        )
         while True:
             queued_count = enqueue_new_files(
                 config=config,
@@ -882,7 +1071,18 @@ def main() -> int:
                 queue_store=queue_store,
                 external_ip_resolver=external_ip_resolver,
                 s3_client=s3_client,
+                api_client=api_client,
                 logger=logger,
+            )
+
+            last_heartbeat_sent = maybe_send_heartbeat(
+                config=config,
+                queue_store=queue_store,
+                external_ip_resolver=external_ip_resolver,
+                api_client=api_client,
+                logger=logger,
+                last_sent_at=last_heartbeat_sent,
+                force=bool(queued_count or processed_count),
             )
 
             if queued_count or processed_count:
