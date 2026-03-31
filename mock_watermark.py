@@ -219,6 +219,11 @@ def normalize_username(value: str) -> str:
     return cleaned.strip()
 
 
+def is_system_identity(username: str) -> bool:
+    candidate = normalize_username(username)
+    return not candidate or candidate.upper() in SYSTEM_USERNAMES or candidate.endswith("$")
+
+
 def get_active_windows_user() -> str:
     commands = [
         [
@@ -266,17 +271,17 @@ def get_active_windows_user() -> str:
 
 
 def get_effective_username() -> str:
-    env_username = normalize_username(os.environ.get("USERNAME", ""))
-    if env_username and env_username.upper() not in SYSTEM_USERNAMES:
-        return env_username
-
     if os.name == "nt":
         active_username = get_active_windows_user()
         if active_username:
             return active_username
 
+    env_username = normalize_username(os.environ.get("USERNAME", ""))
+    if not is_system_identity(env_username):
+        return env_username
+
     fallback = normalize_username(getpass.getuser())
-    return fallback or "unknown"
+    return fallback if not is_system_identity(fallback) else "unknown"
 
 
 class ExternalIPResolver:
