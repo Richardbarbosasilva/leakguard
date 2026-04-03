@@ -3,6 +3,7 @@
   hosts: sharex_pilot
   gather_facts: false
   serial: 1
+  ignore_unreachable: true
   vars_files:
     - ../group_vars/sharex_pilot.yml
 

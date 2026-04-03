@@ -2,6 +2,7 @@
 - name: Uninstall Lightshot from pilot hosts
   hosts: sharex_pilot
   gather_facts: false
+  ignore_unreachable: true
 
   tasks:
     - name: Remove Lightshot when present

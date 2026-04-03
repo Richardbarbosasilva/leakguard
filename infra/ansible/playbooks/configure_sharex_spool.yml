@@ -2,6 +2,7 @@
 - name: Configure ShareX to use the managed spool path
   hosts: sharex_pilot
   gather_facts: false
+  ignore_unreachable: true
   vars_files:
     - ../group_vars/sharex_pilot.yml
 

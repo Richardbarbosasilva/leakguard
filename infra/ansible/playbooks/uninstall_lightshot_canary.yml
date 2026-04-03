@@ -2,6 +2,7 @@
 - name: Uninstall Lightshot from the canary host
   hosts: HOST-TEST2
   gather_facts: false
+  ignore_unreachable: true
 
   tasks:
     - name: Remove Lightshot when present

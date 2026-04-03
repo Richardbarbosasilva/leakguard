@@ -2,6 +2,7 @@
 - name: Install or update ShareX on the canary host
   hosts: HOST-TEST2
   gather_facts: false
+  ignore_unreachable: true
   vars_files:
     - ../group_vars/sharex_pilot.yml
 
