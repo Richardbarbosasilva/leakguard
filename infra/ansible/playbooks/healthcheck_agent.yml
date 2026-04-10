@@ -18,6 +18,9 @@
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Target: {{ ansible_host }}"
+          - "Connection: {{ ansible_connection | default('n/a') }}"
+          - "Transport: {{ ansible_winrm_transport | default('n/a') }}"
+          - "User: {{ ansible_user | default('n/a') }}"
           - "Status: FALHOU"
           - >-
             Detalhe: {{
@@ -56,6 +59,9 @@
       ansible.builtin.debug:
         msg:
           - "Host: {{ inventory_hostname }}"
+          - "Connection: {{ ansible_connection | default('n/a') }}"
+          - "Transport: {{ ansible_winrm_transport | default('n/a') }}"
+          - "User: {{ ansible_user | default('n/a') }}"
           - "Service exists: {{ agent_service.exists | default(false) }}"
           - "Service state: {{ (agent_service.services | default([]) | first).state | default('missing') }}"
           - "Queue DB exists: {{ queue_db.stat.exists }}"

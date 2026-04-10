@@ -15,6 +15,9 @@
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Target: {{ ansible_host }}"
+          - "Connection: {{ ansible_connection | default('n/a') }}"
+          - "Transport: {{ ansible_winrm_transport | default('n/a') }}"
+          - "User: {{ ansible_user | default('n/a') }}"
           - "Status: {{ 'OK' if winrm_ping_result.ping | default('') == 'pong' else 'FALHOU' }}"
           - >-
             Detalhe: {{

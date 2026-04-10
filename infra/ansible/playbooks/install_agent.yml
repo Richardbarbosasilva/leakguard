@@ -19,6 +19,9 @@
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Target: {{ ansible_host }}"
+          - "Connection: {{ ansible_connection | default('n/a') }}"
+          - "Transport: {{ ansible_winrm_transport | default('n/a') }}"
+          - "User: {{ ansible_user | default('n/a') }}"
           - "Status: FALHOU"
           - >-
             Detalhe: {{
@@ -210,7 +213,7 @@
       register: python_path
       when: not local_agent_binary.stat.exists
 
-    - name: Build ScreenshotAuditAgent executable on the remote host
+    - name: Build Leakguard Agent executable on the remote host
       ansible.windows.win_powershell:
         script: |
           $python = "{{ python_path.output[0] }}"
@@ -302,6 +305,9 @@
       ansible.builtin.debug:
         msg:
           - "Host: {{ inventory_hostname }}"
+          - "Connection: {{ ansible_connection | default('n/a') }}"
+          - "Transport: {{ ansible_winrm_transport | default('n/a') }}"
+          - "User: {{ ansible_user | default('n/a') }}"
           - "Service: {{ agent_service_name }}"
           - "Hosts file pinned: {{ hosts_pin.output | default([]) }}"
           - "Storage health: {{ storage_health.output | default([]) }}"
