@@ -7,6 +7,20 @@
     - ../group_vars/sharex_pilot.yml
 
   pre_tasks:
+    - name: Resolve API bearer token from supported Semaphore variable names
+      ansible.builtin.set_fact:
+        resolved_agent_api_bearer_token: >-
+          {{
+            (
+              leakguard_agent_api_bearer_token
+              | default(vars['Service token api'], true)
+              | default(vars['service_token_api'], true)
+              | default(lookup('ansible.builtin.env', 'LEAKGUARD_AGENT_API_BEARER_TOKEN'), true)
+              | default('')
+            ) | trim
+          }}
+      no_log: true
+
     - name: Check WinRM connectivity before canary agent rollout
       ansible.windows.win_ping:
       register: winrm_ping_result
@@ -36,10 +50,11 @@
     - name: Require API bearer token for automated canary rollout
       ansible.builtin.assert:
         that:
-          - (leakguard_agent_api_bearer_token | default('') | trim | length) > 0
+          - (resolved_agent_api_bearer_token | length) > 0
         fail_msg: >-
-          Defina leakguard_agent_api_bearer_token como secret/extra var no Semaphore
-          para que o agent autentique heartbeat e confirmacao de ingestao.
+          Defina o token como secret/extra var no Semaphore usando de preferencia
+          a chave leakguard_agent_api_bearer_token. Alias aceitos: "Service token api",
+          service_token_api ou a env LEAKGUARD_AGENT_API_BEARER_TOKEN.
 
     - name: Load base agent config from the controller
       ansible.builtin.set_fact:
@@ -58,7 +73,7 @@
                     "base_url": agent_api_base_url,
                     "heartbeat_path": "/api/v1/agents/heartbeat",
                     "ingest_confirm_path": "/api/v1/ingest/confirm",
-                    "bearer_token": (leakguard_agent_api_bearer_token | trim),
+                    "bearer_token": resolved_agent_api_bearer_token,
                     "agent_id": inventory_hostname
                   }
                 },

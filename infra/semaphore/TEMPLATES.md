@@ -30,6 +30,7 @@ Observacao:
 - o secret do token da API deve usar exatamente a chave `leakguard_agent_api_bearer_token`
 - o nome do grupo de variaveis pode ser qualquer um, mas a chave interna deve ser exatamente `leakguard_agent_api_bearer_token`
 - os templates `*_canary` executam apenas no `HOST-TEST2`; os templates sem `canary` usam todo o grupo `sharex_pilot`
+- por compatibilidade temporaria, os playbooks tambem aceitam os aliases `Service token api`, `service_token_api` e a env `LEAKGUARD_AGENT_API_BEARER_TOKEN`
 
 ## Templates iniciais
 
